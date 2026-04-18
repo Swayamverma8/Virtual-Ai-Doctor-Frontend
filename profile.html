@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MediAI — My Profile</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root { --mint:#00c896; --mint-light:#00e6aa; --mint-dim:rgba(0,200,150,0.12); --danger:#ff5c7c; --warning:#ffaa00; }
+  [data-theme="dark"] { --bg:#0a1628; --bg-mid:#112240; --bg-input:#0a1628; --bg-toggle:#1d3461; --text:#f0f4f8; --text-muted:#8892a4; --border:rgba(255,255,255,0.07); }
+  [data-theme="light"] { --bg:#f0f4f8; --bg-mid:#ffffff; --bg-input:#f8fafc; --bg-toggle:#e2e8f0; --text:#0a1628; --text-muted:#64748b; --border:rgba(0,0,0,0.09); }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--text); min-height:100vh; transition:background 0.3s,color 0.3s; }
+
+  nav { background:var(--bg-mid); border-bottom:1px solid var(--border); padding:0 40px; display:flex; align-items:center; justify-content:space-between; height:64px; position:sticky; top:0; z-index:100; transition:background 0.3s; }
+  .nav-logo { display:flex; align-items:center; gap:10px; font-family:'DM Serif Display',serif; font-size:20px; }
+  .nav-logo span { color:var(--mint); }
+  .nav-logo-icon { width:36px; height:36px; background:var(--mint); border-radius:9px; display:flex; align-items:center; justify-content:center; font-size:16px; }
+  .nav-right { display:flex; align-items:center; gap:12px; }
+  .nav-link { padding:8px 16px; background:transparent; border:1px solid var(--border); border-radius:8px; color:var(--text-muted); font-family:'DM Sans',sans-serif; font-size:13px; cursor:pointer; transition:all 0.2s; text-decoration:none; display:inline-block; }
+  .nav-link:hover { border-color:var(--mint); color:var(--mint); }
+  .theme-toggle-nav { background:transparent; border:1px solid var(--border); border-radius:50px; padding:5px 12px; display:flex; align-items:center; gap:7px; cursor:pointer; font-size:12px; color:var(--text-muted); font-family:'DM Sans',sans-serif; transition:all 0.2s; }
+  .theme-toggle-nav:hover { border-color:var(--mint); color:var(--mint); }
+  .toggle-track { width:28px; height:16px; background:var(--bg-toggle); border-radius:8px; position:relative; }
+  .toggle-thumb { width:12px; height:12px; background:var(--mint); border-radius:50%; position:absolute; top:2px; left:2px; transition:transform 0.3s; }
+  [data-theme="light"] .toggle-thumb { transform:translateX(12px); }
+  .btn-logout { padding:8px 16px; background:transparent; border:1px solid var(--border); border-radius:8px; color:var(--text-muted); font-family:'DM Sans',sans-serif; font-size:13px; cursor:pointer; transition:all 0.2s; }
+  .btn-logout:hover { border-color:var(--danger); color:var(--danger); }
+
+  main { max-width:800px; margin:0 auto; padding:48px 40px; }
+
+  .page-header { margin-bottom:40px; }
+  .page-title { font-family:'DM Serif Display',serif; font-size:36px; margin-bottom:6px; }
+  .page-sub { color:var(--text-muted); font-size:15px; }
+
+  /* Profile avatar */
+  .profile-top {
+    background:var(--bg-mid); border:1px solid var(--border);
+    border-radius:20px; padding:32px; margin-bottom:24px;
+    display:flex; align-items:center; gap:24px;
+    transition:background 0.3s;
+  }
+  .avatar {
+    width:80px; height:80px; background:var(--mint);
+    border-radius:20px; display:flex; align-items:center;
+    justify-content:center; font-family:'DM Serif Display',serif;
+    font-size:32px; color:#0a1628; flex-shrink:0;
+  }
+  .profile-info h2 { font-family:'DM Serif Display',serif; font-size:24px; margin-bottom:4px; }
+  .profile-info p { color:var(--text-muted); font-size:14px; }
+  .profile-badge { display:inline-flex; align-items:center; gap:6px; margin-top:10px; padding:5px 12px; background:var(--mint-dim); border:1px solid rgba(0,200,150,0.2); border-radius:20px; font-size:12px; color:var(--mint); }
+
+  /* Form sections */
+  .form-section {
+    background:var(--bg-mid); border:1px solid var(--border);
+    border-radius:20px; padding:28px; margin-bottom:20px;
+    transition:background 0.3s;
+  }
+  .section-header { display:flex; align-items:center; gap:10px; margin-bottom:24px; }
+  .section-icon { width:36px; height:36px; background:var(--mint-dim); border-radius:9px; display:flex; align-items:center; justify-content:center; font-size:16px; }
+  .section-title { font-family:'DM Serif Display',serif; font-size:18px; }
+  .section-sub { font-size:13px; color:var(--text-muted); margin-top:2px; }
+
+  .form-grid { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+  .form-grid.single { grid-template-columns:1fr; }
+
+  .form-group { display:flex; flex-direction:column; gap:8px; }
+  .form-group label { font-size:12px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; }
+  .form-group input, .form-group select, .form-group textarea {
+    padding:13px 16px; background:var(--bg-input);
+    border:1px solid var(--border); border-radius:10px;
+    color:var(--text); font-family:'DM Sans',sans-serif;
+    font-size:14px; transition:all 0.2s; outline:none;
+  }
+  .form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color:var(--mint); box-shadow:0 0 0 3px var(--mint-dim); }
+  .form-group input::placeholder, .form-group textarea::placeholder { color:var(--text-muted); opacity:0.5; }
+  .form-group select { cursor:pointer; }
+  .form-group textarea { resize:vertical; min-height:90px; line-height:1.5; }
+
+  /* AI context notice */
+  .ai-notice {
+    background:var(--mint-dim); border:1px solid rgba(0,200,150,0.2);
+    border-radius:12px; padding:14px 16px;
+    display:flex; align-items:flex-start; gap:10px;
+    margin-bottom:20px;
+  }
+  .ai-notice-icon { font-size:18px; flex-shrink:0; margin-top:1px; }
+  .ai-notice p { font-size:13px; color:var(--mint); line-height:1.6; }
+  .ai-notice strong { font-weight:600; }
+
+  .btn-save {
+    width:100%; padding:15px; background:var(--mint); border:none;
+    border-radius:10px; color:#0a1628; font-family:'DM Sans',sans-serif;
+    font-size:15px; font-weight:600; cursor:pointer; transition:all 0.2s;
+    margin-top:8px;
+  }
+  .btn-save:hover { background:var(--mint-light); transform:translateY(-1px); box-shadow:0 8px 25px rgba(0,200,150,0.3); }
+  .btn-save.loading { pointer-events:none; opacity:0.7; }
+
+  .success-toast {
+    position:fixed; bottom:30px; left:50%; transform:translateX(-50%);
+    background:var(--mint); color:#0a1628; padding:12px 24px;
+    border-radius:20px; font-size:14px; font-weight:600;
+    opacity:0; transition:opacity 0.3s; z-index:1000; pointer-events:none;
+  }
+  .success-toast.show { opacity:1; }
+
+  @keyframes spin { to{transform:rotate(360deg)} }
+  .spinner { width:28px; height:28px; border:3px solid rgba(0,200,150,0.2); border-top-color:var(--mint); border-radius:50%; animation:spin 0.8s linear infinite; margin:60px auto; display:block; }
+
+  @media(max-width:600px) { .form-grid { grid-template-columns:1fr; } main { padding:32px 20px; } }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-logo">
+    <div class="nav-logo-icon">🩺</div>
+    Medi<span>AI</span>
+  </div>
+  <div class="nav-right">
+    <a href="dashboard.html" class="nav-link">← Dashboard</a>
+    <button class="theme-toggle-nav" onclick="toggleTheme()">
+      <span id="theme-icon">☀️</span>
+      <div class="toggle-track"><div class="toggle-thumb"></div></div>
+      <span id="theme-label">Light</span>
+    </button>
+    <button class="btn-logout" onclick="logout()">Sign Out</button>
+  </div>
+</nav>
+
+<main>
+  <div class="page-header">
+    <h1 class="page-title">My Profile</h1>
+    <p class="page-sub">Your health profile helps AI give more accurate diagnoses</p>
+  </div>
+
+  <div id="loading"><div class="spinner"></div></div>
+
+  <div id="profile-content" style="display:none">
+
+    <!-- Profile Top -->
+    <div class="profile-top">
+      <div class="avatar" id="avatar-initials">S</div>
+      <div class="profile-info">
+        <h2 id="profile-name">Loading...</h2>
+        <p id="profile-email">Loading...</p>
+        <div class="profile-badge">🩺 MediAI Member</div>
+      </div>
+    </div>
+
+    <!-- AI Notice -->
+    <div class="ai-notice">
+      <div class="ai-notice-icon">🤖</div>
+      <p><strong>AI-Enhanced Diagnosis:</strong> When you fill in your age, blood group, allergies and medical history, the AI doctor uses this information to give you more personalized and accurate health guidance.</p>
+    </div>
+
+    <!-- Basic Info -->
+    <div class="form-section">
+      <div class="section-header">
+        <div class="section-icon">👤</div>
+        <div>
+          <div class="section-title">Basic Information</div>
+          <div class="section-sub">Your personal details</div>
+        </div>
+      </div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Full Name</label>
+          <input type="text" id="name" placeholder="Your full name"/>
+        </div>
+        <div class="form-group">
+          <label>Age</label>
+          <input type="number" id="age" placeholder="Your age" min="1" max="120"/>
+        </div>
+      </div>
+    </div>
+
+    <!-- Medical Info -->
+    <div class="form-section">
+      <div class="section-header">
+        <div class="section-icon">🩸</div>
+        <div>
+          <div class="section-title">Medical Information</div>
+          <div class="section-sub">Used by AI for better diagnosis</div>
+        </div>
+      </div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Blood Group</label>
+          <select id="bloodGroup">
+            <option value="">Select blood group</option>
+            <option value="A+">A+</option>
+            <option value="A-">A-</option>
+            <option value="B+">B+</option>
+            <option value="B-">B-</option>
+            <option value="AB+">AB+</option>
+            <option value="AB-">AB-</option>
+            <option value="O+">O+</option>
+            <option value="O-">O-</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Known Allergies</label>
+          <input type="text" id="allergies" placeholder="e.g. Penicillin, Peanuts, Dust"/>
+        </div>
+      </div>
+      <div class="form-grid single" style="margin-top:18px">
+        <div class="form-group">
+          <label>Medical History</label>
+          <textarea id="medicalHistory" placeholder="e.g. Diabetes, Hypertension, Asthma, Previous surgeries..."></textarea>
+        </div>
+      </div>
+    </div>
+
+    <button class="btn-save" id="save-btn" onclick="saveProfile()">Save Profile →</button>
+
+  </div>
+</main>
+
+<div class="success-toast" id="toast">✅ Profile saved successfully!</div>
+
+<script>
+  const API = 'https://virtual-ai-doctor.onrender.com';
+  const token = localStorage.getItem('token');
+  if (!token) window.location.href = 'index.html';
+
+  const savedTheme = localStorage.getItem('theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', savedTheme);
+  updateThemeUI(savedTheme);
+
+  function toggleTheme() {
+    const current = document.documentElement.getAttribute('data-theme');
+    const next = current === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('theme', next);
+    updateThemeUI(next);
+  }
+
+  function updateThemeUI(theme) {
+    document.getElementById('theme-icon').textContent = theme === 'dark' ? '☀️' : '🌙';
+    document.getElementById('theme-label').textContent = theme === 'dark' ? 'Light' : 'Dark';
+  }
+
+  function logout() { localStorage.clear(); window.location.href = 'index.html'; }
+
+  async function loadProfile() {
+    try {
+      const res = await fetch(`${API}/profile`, { headers:{'Authorization':`Bearer ${token}`} });
+      if (res.status === 403) { logout(); return; }
+      const user = await res.json();
+
+      // Set avatar initials
+      const initials = user.name ? user.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0,2) : 'U';
+      document.getElementById('avatar-initials').textContent = initials;
+      document.getElementById('profile-name').textContent = user.name || 'User';
+      document.getElementById('profile-email').textContent = user.email || '';
+
+      // Fill form
+      document.getElementById('name').value = user.name || '';
+      document.getElementById('age').value = user.age || '';
+      document.getElementById('bloodGroup').value = user.bloodGroup || '';
+      document.getElementById('allergies').value = user.allergies || '';
+      document.getElementById('medicalHistory').value = user.medicalHistory || '';
+
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('profile-content').style.display = 'block';
+    } catch(e) {
+      document.getElementById('loading').innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:40px">Could not load profile. Make sure the server is running.</p>';
+    }
+  }
+
+  async function saveProfile() {
+    const btn = document.getElementById('save-btn');
+    btn.textContent = 'Saving...'; btn.classList.add('loading');
+
+    const data = {
+      name: document.getElementById('name').value.trim(),
+      age: document.getElementById('age').value.trim(),
+      bloodGroup: document.getElementById('bloodGroup').value,
+      allergies: document.getElementById('allergies').value.trim(),
+      medicalHistory: document.getElementById('medicalHistory').value.trim()
+    };
+
+    try {
+      const res = await fetch(`${API}/profile`, {
+        method:'PUT',
+        headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/json'},
+        body:JSON.stringify(data)
+      });
+      if (res.status === 403) { logout(); return; }
+      const msg = await res.text();
+      if (msg.includes('successfully')) {
+        // Update avatar and name
+        const initials = data.name ? data.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0,2) : 'U';
+        document.getElementById('avatar-initials').textContent = initials;
+        document.getElementById('profile-name').textContent = data.name;
+        showToast();
+      }
+    } catch(e) {
+      alert('Connection error. Make sure server is running.');
+    }
+
+    btn.textContent = 'Save Profile →'; btn.classList.remove('loading');
+  }
+
+  function showToast() {
+    const toast = document.getElementById('toast');
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 2500);
+  }
+
+  loadProfile();
+</script>
+</body>
+</html>
