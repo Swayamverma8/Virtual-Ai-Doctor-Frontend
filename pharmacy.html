@@ -146,6 +146,23 @@ nav {
 .sev-txt { color: var(--text-muted); font-size: 12px; }
 .sev-txt strong { color: var(--text); font-weight: 600; }
 
+/* ─── SOURCE BADGE ───────────────────────────────────────────────────────── */
+.source-badge {
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 10px;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  background: transparent;
+  display: none;
+  align-items: center;
+  gap: 5px;
+}
+.source-badge.show { display: flex; }
+.source-badge.live { border-color: rgba(0,200,150,0.3); color: var(--mint); background: var(--mint-dim); }
+.source-badge.osm  { border-color: rgba(255,170,0,0.3); color: var(--warning); background: rgba(255,170,0,0.08); }
+
 /* ─── LAYOUT ─────────────────────────────────────────────────────────────── */
 .layout { display: flex; flex: 1; overflow: hidden; }
 
@@ -230,6 +247,7 @@ nav {
   display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
 }
 .s-listhdr-title { font-size: 10px; text-transform: uppercase; letter-spacing: 1.1px; color: var(--text-dim); font-weight: 600; }
+.s-listhdr-right { display: flex; align-items: center; gap: 8px; }
 .s-listhdr-count { font-size: 11px; color: var(--mint); font-weight: 700; }
 
 /* Cards */
@@ -444,7 +462,7 @@ nav {
       </select>
     </div>
 
-    <!-- Open-now filter -->
+    <!-- Open-now toggle -->
     <div class="s-toggles">
       <button class="tpill on" id="t-all"  onclick="setOpenFilter('all')">All</button>
       <button class="tpill"    id="t-open" onclick="setOpenFilter('open')">Open Now</button>
@@ -453,7 +471,10 @@ nav {
     <!-- List header -->
     <div class="s-listhdr">
       <span class="s-listhdr-title">Nearby Pharmacies</span>
-      <span class="s-listhdr-count" id="list-count">—</span>
+      <div class="s-listhdr-right">
+        <span class="source-badge" id="source-badge"></span>
+        <span class="s-listhdr-count" id="list-count">—</span>
+      </div>
     </div>
 
     <!-- Cards -->
@@ -503,13 +524,17 @@ nav {
 
 <script>
 /* ─── CONFIG ─────────────────────────────────────────────────────────────── */
+// To use Google Maps: set your API key here.
+// If left as-is, the app automatically uses OpenStreetMap + Overpass API (free, no key needed).
 const GOOGLE_MAPS_API_KEY = 'YOUR_GOOGLE_MAPS_API_KEY';
-const USE_DEMO = GOOGLE_MAPS_API_KEY === 'YOUR_GOOGLE_MAPS_API_KEY';
+const USE_GOOGLE = GOOGLE_MAPS_API_KEY !== 'YOUR_GOOGLE_MAPS_API_KEY';
 
 /* ─── STATE ──────────────────────────────────────────────────────────────── */
 let map, markers = [], allPharmacies = [];
 let currentRadius = 1000, userLocation = null;
 let openFilter = 'all', sortMode = 'dist', searchQuery = '';
+// 'google' | 'osm'
+let dataSource = 'osm';
 
 /* ─── THEME ──────────────────────────────────────────────────────────────── */
 const savedTheme = localStorage.getItem('theme') || 'dark';
@@ -521,7 +546,8 @@ function toggleTheme() {
   document.documentElement.setAttribute('data-theme', next);
   localStorage.setItem('theme', next);
   setThemeIcon(next);
-  if (map) map.setOptions({ styles: next === 'dark' ? darkStyle : [] });
+  if (map && USE_GOOGLE) map.setOptions({ styles: next === 'dark' ? darkStyle : [] });
+  if (!USE_GOOGLE && userLocation) renderOSMMap(userLocation);
 }
 function setThemeIcon(t) {
   const btn = document.getElementById('theme-btn');
@@ -548,7 +574,7 @@ if (sev) {
   txt.innerHTML = copy[sev] || '';
 }
 
-/* ─── DARK MAP STYLE ─────────────────────────────────────────────────────── */
+/* ─── DARK MAP STYLE (Google only) ──────────────────────────────────────── */
 const darkStyle = [
   {elementType:'geometry',stylers:[{color:'#080f1e'}]},
   {elementType:'labels.text.stroke',stylers:[{color:'#080f1e'}]},
@@ -569,18 +595,20 @@ function initLocation() {
   document.getElementById('ov-error').classList.add('off');
   document.getElementById('ov-loading').classList.remove('off');
 
-  if (USE_DEMO) {
-    userLocation = { lat: 23.2599, lng: 77.4126 }; // Bhopal
-    initMap(userLocation);
-    return;
-  }
-
   if (!navigator.geolocation) { showError('Geolocation not supported by your browser.'); return; }
 
   navigator.geolocation.getCurrentPosition(
-    pos => { userLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude }; initMap(userLocation); },
+    pos => {
+      userLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      if (USE_GOOGLE) initGoogleMap(userLocation);
+      else initOSMMap(userLocation);
+    },
     err => {
-      const m = { 1:'Location access denied. Please allow it in browser settings.', 2:'Location unavailable. Check GPS / network.', 3:'Request timed out. Please try again.' };
+      const m = {
+        1: 'Location access denied. Please allow it in browser settings.',
+        2: 'Location unavailable. Check GPS / network.',
+        3: 'Request timed out. Please try again.'
+      };
       showError(m[err.code] || 'Could not get your location.');
     },
     { timeout: 10000, enableHighAccuracy: true }
@@ -593,14 +621,11 @@ function showError(msg) {
   document.getElementById('ov-errmsg').textContent = msg;
 }
 
-/* ─── MAP INIT ───────────────────────────────────────────────────────────── */
-function initMap(loc) {
-  if (USE_DEMO) {
-    demoMap(loc);
-    loadDemo(loc);
-    return;
-  }
-
+/* ═══════════════════════════════════════════════════════════════════════════
+   PATH A — GOOGLE MAPS (when API key is provided)
+   ═══════════════════════════════════════════════════════════════════════════ */
+function initGoogleMap(loc) {
+  dataSource = 'google';
   map = new google.maps.Map(document.getElementById('map'), {
     center: loc, zoom: 15,
     styles: savedTheme === 'dark' ? darkStyle : [],
@@ -608,14 +633,12 @@ function initMap(loc) {
     fullscreenControl: false, zoomControl: false
   });
 
-  // User dot
   new google.maps.Marker({
     position: loc, map, title: 'You',
     icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: '#00c896', fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2.5 },
     zIndex: 999
   });
 
-  // Radius ring
   new google.maps.Circle({
     map, center: loc, radius: currentRadius,
     strokeColor: '#00c896', strokeOpacity: 0.2, strokeWeight: 1,
@@ -623,11 +646,10 @@ function initMap(loc) {
   });
 
   document.getElementById('map-ctrls').style.display = 'flex';
-  searchNearby(loc);
+  searchGoogleNearby(loc);
 }
 
-/* ─── GOOGLE PLACES SEARCH ───────────────────────────────────────────────── */
-function searchNearby(loc) {
+function searchGoogleNearby(loc) {
   const svc = new google.maps.places.PlacesService(map);
   svc.nearbySearch(
     { location: loc, radius: currentRadius, type: 'pharmacy', keyword: 'pharmacy medical store chemist' },
@@ -635,49 +657,212 @@ function searchNearby(loc) {
       document.getElementById('ov-loading').classList.add('off');
       if (status === google.maps.places.PlacesServiceStatus.OK) {
         allPharmacies = results;
-        renderList(); placeMarkers(results);
+        setSourceBadge('google');
+        renderList();
+        placeGoogleMarkers(results);
       } else {
-        allPharmacies = []; renderList();
+        allPharmacies = [];
+        renderList();
       }
     }
   );
 }
 
-/* ─── DEMO MAP ───────────────────────────────────────────────────────────── */
-function demoMap(loc) {
-  document.getElementById('ov-loading').classList.add('off');
-  document.getElementById('map-ctrls').style.display = 'flex';
-  const bbox = `${loc.lng-0.02},${loc.lat-0.015},${loc.lng+0.02},${loc.lat+0.015}`;
-  document.getElementById('map').innerHTML = `
-    <iframe width="100%" height="100%" style="border:none;display:block"
-      src="https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(bbox)}&layer=mapnik&marker=${loc.lat},${loc.lng}"
-      title="Map of nearby pharmacies" loading="lazy" allowfullscreen></iframe>`;
+function placeGoogleMarkers(places) {
+  markers.forEach(m => m.setMap(null)); markers = [];
+  places.forEach((p, i) => {
+    const m = new google.maps.Marker({
+      position: p.geometry.location, map, title: p.name,
+      icon: {
+        url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(markerSVG()),
+        scaledSize: new google.maps.Size(28, 36),
+        anchor: new google.maps.Point(14, 36)
+      }
+    });
+    m.addListener('click', () => selectGooglePlace(i, p));
+    markers.push(m);
+  });
 }
 
-/* ─── DEMO DATA ──────────────────────────────────────────────────────────── */
-function loadDemo(loc) {
-  allPharmacies = [
-    { name:'Apollo Pharmacy',      address:'MG Road, Near City Mall',             distRaw:180,  rating:4.5, open:true  },
-    { name:'MedPlus Health',        address:'Sapna Sangeeta Road, Opp. Hotel',     distRaw:320,  rating:4.2, open:true  },
-    { name:'Wellness Forever',      address:'Vijay Nagar Square, Ground Floor',    distRaw:450,  rating:4.0, open:false },
-    { name:'Jan Aushadhi Kendra',   address:'Palasia, Near Bus Stand',             distRaw:680,  rating:3.8, open:true  },
-    { name:'Sanjivani Medical',     address:'South Tukoganj, Main Road',           distRaw:810,  rating:4.3, open:true  },
-    { name:'Surya Medical Store',   address:'Chhawni Chowk, Old Palasia',          distRaw:940,  rating:4.1, open:false },
-    { name:'HealthPlus Pharmacy',   address:'New Market, TT Nagar',                distRaw:1100, rating:4.6, open:true  },
-    { name:'City Medical Centre',   address:'Arera Colony, E-3 Area',             distRaw:1350, rating:3.9, open:true  },
+function selectGooglePlace(i, place) {
+  activateCard(i);
+  const p = place || allPharmacies[i];
+  if (!p || !map) return;
+  const loc = { lat: p.geometry.location.lat(), lng: p.geometry.location.lng() };
+  map.panTo(loc); map.setZoom(17);
+  markers[i]?.setAnimation(google.maps.Animation.BOUNCE);
+  setTimeout(() => markers[i]?.setAnimation(null), 1400);
+  document.getElementById('mc-name').textContent = p.name;
+  document.getElementById('mc-addr').textContent = p.vicinity || 'Address not available';
+  document.getElementById('mc-nav').href = `https://www.google.com/maps/dir/?api=1&destination=${loc.lat},${loc.lng}`;
+  document.getElementById('map-card').classList.add('show');
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PATH B — OPENSTREETMAP + OVERPASS API (free, no key needed)
+   ═══════════════════════════════════════════════════════════════════════════ */
+function initOSMMap(loc) {
+  dataSource = 'osm';
+  renderOSMMap(loc);
+  document.getElementById('map-ctrls').style.display = 'flex';
+  fetchOverpassPharmacies(loc);
+}
+
+function renderOSMMap(loc) {
+  // Use OpenStreetMap iframe embed — works without any API key
+  const theme = document.documentElement.getAttribute('data-theme');
+  const layer = theme === 'dark' ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png' : 'mapnik';
+  const delta = currentRadius / 111000; // rough degrees per metre
+  const bbox = `${loc.lng - delta * 1.5},${loc.lat - delta},${loc.lng + delta * 1.5},${loc.lat + delta}`;
+  document.getElementById('map').innerHTML = `
+    <iframe
+      width="100%" height="100%"
+      style="border:none;display:block;filter:${theme==='dark'?'invert(0.9) hue-rotate(180deg)':''}"
+      src="https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(bbox)}&layer=mapnik&marker=${loc.lat},${loc.lng}"
+      title="Map of nearby pharmacies"
+      loading="lazy"
+      allowfullscreen>
+    </iframe>`;
+}
+
+async function fetchOverpassPharmacies(loc) {
+  const r = currentRadius;
+  // Overpass QL query — fetches all pharmacies, chemists, and medical stores nearby
+  const query = `
+    [out:json][timeout:25];
+    (
+      node["amenity"="pharmacy"](around:${r},${loc.lat},${loc.lng});
+      node["shop"="chemist"](around:${r},${loc.lat},${loc.lng});
+      node["shop"="medical_supply"](around:${r},${loc.lat},${loc.lng});
+      way["amenity"="pharmacy"](around:${r},${loc.lat},${loc.lng});
+    );
+    out body center;
+  `;
+
+  // Try multiple Overpass endpoints for reliability
+  const endpoints = [
+    'https://overpass-api.de/api/interpreter',
+    'https://overpass.kumi.systems/api/interpreter',
+    'https://maps.mail.ru/osm/tools/overpass/api/interpreter'
   ];
+
+  let data = null;
+  for (const endpoint of endpoints) {
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        body: 'data=' + encodeURIComponent(query),
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+      });
+      if (res.ok) { data = await res.json(); break; }
+    } catch(e) { continue; }
+  }
+
+  document.getElementById('ov-loading').classList.add('off');
+
+  if (!data || !data.elements?.length) {
+    allPharmacies = [];
+    renderList();
+    return;
+  }
+
+  // Normalize OSM data into our internal format
+  allPharmacies = data.elements
+    .filter(el => el.tags)
+    .map(el => {
+      const lat = el.lat ?? el.center?.lat;
+      const lng = el.lon ?? el.center?.lon;
+      if (!lat || !lng) return null;
+
+      const name = el.tags.name || el.tags['name:en'] || 'Pharmacy';
+      const address = buildOSMAddress(el.tags);
+      const phone = el.tags.phone || el.tags['contact:phone'] || null;
+      const opening = el.tags.opening_hours || null;
+      const isOpen = guessOpenStatus(opening);
+      const dist = distRaw(loc, { lat, lng });
+
+      return { _osm: true, id: el.id, name, address, phone, opening, isOpen, lat, lng, distRaw: dist };
+    })
+    .filter(Boolean);
+
+  setSourceBadge('osm');
   renderList();
 }
 
+function buildOSMAddress(tags) {
+  const parts = [
+    tags['addr:housename'],
+    tags['addr:street'] ? `${tags['addr:housenumber'] || ''} ${tags['addr:street']}`.trim() : null,
+    tags['addr:suburb'] || tags['addr:neighbourhood'],
+    tags['addr:city'],
+  ].filter(Boolean);
+  return parts.length ? parts.join(', ') : (tags['description'] || 'Address not available');
+}
+
+function guessOpenStatus(openingHoursStr) {
+  if (!openingHoursStr) return null;
+  const s = openingHoursStr.toLowerCase();
+  if (s === '24/7') return true;
+
+  const now = new Date();
+  const day = ['su','mo','tu','we','th','fr','sa'][now.getDay()];
+  const curMins = now.getHours() * 60 + now.getMinutes();
+
+  // Simple parser for "Mo-Fr 09:00-21:00" style
+  const match = s.match(/(\d{1,2}):(\d{2})\s*[-–]\s*(\d{1,2}):(\d{2})/);
+  if (match) {
+    const open  = parseInt(match[1]) * 60 + parseInt(match[2]);
+    const close = parseInt(match[3]) * 60 + parseInt(match[4]);
+    return curMins >= open && curMins < close;
+  }
+  return null;
+}
+
+function selectOSMPlace(i) {
+  activateCard(i);
+  const p = allPharmacies[i];
+  if (!p) return;
+  document.getElementById('mc-name').textContent = p.name;
+  document.getElementById('mc-addr').textContent = p.address;
+  document.getElementById('mc-nav').href = `https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}`;
+  document.getElementById('map-card').classList.add('show');
+  // Re-center map on selected place
+  if (userLocation) {
+    const delta = currentRadius / 111000;
+    const bbox = `${p.lng - delta},${p.lat - delta},${p.lng + delta},${p.lat + delta}`;
+    const theme = document.documentElement.getAttribute('data-theme');
+    document.getElementById('map').innerHTML = `
+      <iframe width="100%" height="100%"
+        style="border:none;display:block;filter:${theme==='dark'?'invert(0.9) hue-rotate(180deg)':''}"
+        src="https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(bbox)}&layer=mapnik&marker=${p.lat},${p.lng}"
+        title="${esc(p.name)}" loading="lazy" allowfullscreen></iframe>`;
+  }
+}
+
+/* ─── SOURCE BADGE ───────────────────────────────────────────────────────── */
+function setSourceBadge(src) {
+  const badge = document.getElementById('source-badge');
+  badge.classList.add('show');
+  if (src === 'google') {
+    badge.classList.add('live'); badge.classList.remove('osm');
+    badge.textContent = '● Google Live';
+  } else {
+    badge.classList.add('osm'); badge.classList.remove('live');
+    badge.textContent = '● OpenStreetMap';
+  }
+}
+
 /* ─── RENDER LIST ────────────────────────────────────────────────────────── */
-// Single source of truth — all filtering, sorting, searching flows through here
 function renderList() {
   const list = document.getElementById('p-list');
   let data = [...allPharmacies];
 
   // 1. Open-now filter
   if (openFilter === 'open') {
-    data = data.filter(p => USE_DEMO ? p.open : p.opening_hours?.isOpen?.() === true);
+    data = data.filter(p => {
+      if (USE_GOOGLE) return p.opening_hours?.isOpen?.() === true;
+      return p.isOpen === true;
+    });
   }
 
   // 2. Search filter
@@ -685,7 +870,7 @@ function renderList() {
     const q = searchQuery.toLowerCase();
     data = data.filter(p => {
       const name = p.name.toLowerCase();
-      const addr = USE_DEMO ? p.address.toLowerCase() : (p.vicinity || '').toLowerCase();
+      const addr = (USE_GOOGLE ? (p.vicinity || '') : (p.address || '')).toLowerCase();
       return name.includes(q) || addr.includes(q);
     });
   }
@@ -693,8 +878,12 @@ function renderList() {
   // 3. Sort
   data.sort((a, b) => {
     if (sortMode === 'dist') {
-      const da = USE_DEMO ? a.distRaw : (userLocation ? distRaw(userLocation, {lat:a.geometry.location.lat(),lng:a.geometry.location.lng()}) : 0);
-      const db = USE_DEMO ? b.distRaw : (userLocation ? distRaw(userLocation, {lat:b.geometry.location.lat(),lng:b.geometry.location.lng()}) : 0);
+      const da = USE_GOOGLE
+        ? (userLocation ? distRaw(userLocation, {lat:a.geometry.location.lat(),lng:a.geometry.location.lng()}) : 0)
+        : a.distRaw;
+      const db = USE_GOOGLE
+        ? (userLocation ? distRaw(userLocation, {lat:b.geometry.location.lat(),lng:b.geometry.location.lng()}) : 0)
+        : b.distRaw;
       return da - db;
     }
     if (sortMode === 'rating') return (b.rating||0) - (a.rating||0);
@@ -711,30 +900,15 @@ function renderList() {
 
   list.innerHTML = data.map((p, i) => {
     const origIdx = allPharmacies.indexOf(p);
-    if (USE_DEMO) {
-      const d = p.distRaw < 1000 ? p.distRaw + 'm' : (p.distRaw/1000).toFixed(1) + 'km';
-      return `<div class="p-card" id="pc-${origIdx}" role="listitem" onclick="selectDemo(${origIdx})" style="animation-delay:${i*0.04}s">
-        <div class="pc-row1">
-          <div class="pc-name">💊 ${esc(p.name)}</div>
-          <span class="pc-badge ${p.open?'open':'closed'}">${p.open?'Open':'Closed'}</span>
-        </div>
-        <div class="pc-addr">📍 ${esc(p.address)}</div>
-        <div class="pc-meta">
-          <div class="pc-meta-item">📏 ${d}</div>
-          ${p.rating ? `<div class="pc-meta-item"><span class="stars">${renderStars(p.rating)}</span> ${p.rating}</div>` : ''}
-        </div>
-        <div class="pc-btns">
-          <a class="pc-btn pri" href="https://www.google.com/maps/search/${encodeURIComponent(p.name+' '+p.address)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">🗺 Directions</a>
-          <button class="pc-btn" disabled>📞 N/A</button>
-        </div>
-      </div>`;
-    } else {
+
+    if (USE_GOOGLE) {
+      // Google Places data
       const isOpen  = p.opening_hours?.isOpen?.();
       const openCls = isOpen===true?'open':isOpen===false?'closed':'unknown';
       const openLbl = isOpen===true?'Open':isOpen===false?'Closed':'N/A';
       const d       = userLocation ? distStr(userLocation,{lat:p.geometry.location.lat(),lng:p.geometry.location.lng()}) : '';
       const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${p.geometry.location.lat()},${p.geometry.location.lng()}`;
-      return `<div class="p-card" id="pc-${origIdx}" role="listitem" onclick="selectPlace(${origIdx},null)" style="animation-delay:${i*0.04}s">
+      return `<div class="p-card" id="pc-${origIdx}" role="listitem" onclick="selectGooglePlace(${origIdx},null)" style="animation-delay:${i*0.04}s">
         <div class="pc-row1">
           <div class="pc-name">💊 ${esc(p.name)}</div>
           <span class="pc-badge ${openCls}">${openLbl}</span>
@@ -751,6 +925,30 @@ function renderList() {
             : `<button class="pc-btn" disabled>📞 N/A</button>`}
         </div>
       </div>`;
+    } else {
+      // OSM / Overpass data
+      const openCls = p.isOpen===true?'open':p.isOpen===false?'closed':'unknown';
+      const openLbl = p.isOpen===true?'Open':p.isOpen===false?'Closed':'N/A';
+      const d       = p.distRaw < 1000 ? Math.round(p.distRaw)+'m' : (p.distRaw/1000).toFixed(1)+'km';
+      const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}`;
+      const osmUrl  = `https://www.openstreetmap.org/node/${p.id}`;
+      return `<div class="p-card" id="pc-${origIdx}" role="listitem" onclick="selectOSMPlace(${origIdx})" style="animation-delay:${i*0.04}s">
+        <div class="pc-row1">
+          <div class="pc-name">💊 ${esc(p.name)}</div>
+          <span class="pc-badge ${openCls}">${openLbl}</span>
+        </div>
+        <div class="pc-addr">📍 ${esc(p.address)}</div>
+        <div class="pc-meta">
+          <div class="pc-meta-item">📏 ${d}</div>
+          ${p.opening ? `<div class="pc-meta-item">🕐 ${esc(p.opening)}</div>` : ''}
+        </div>
+        <div class="pc-btns">
+          <a class="pc-btn pri" href="${mapsUrl}" target="_blank" rel="noopener" onclick="event.stopPropagation()">🗺 Directions</a>
+          ${p.phone
+            ? `<a class="pc-btn" href="tel:${p.phone}" onclick="event.stopPropagation()">📞 Call</a>`
+            : `<a class="pc-btn" href="${osmUrl}" target="_blank" rel="noopener" onclick="event.stopPropagation()">ℹ️ Info</a>`}
+        </div>
+      </div>`;
     }
   }).join('');
 }
@@ -762,47 +960,32 @@ function activateCard(i) {
   if (c) { c.classList.add('active'); c.scrollIntoView({ behavior:'smooth', block:'nearest' }); }
 }
 
-function selectDemo(i) { activateCard(i); }
-
-function selectPlace(i, place) {
-  activateCard(i);
-  const p = place || allPharmacies[i];
-  if (!p || !map) return;
-  const loc = { lat: p.geometry.location.lat(), lng: p.geometry.location.lng() };
-  map.panTo(loc); map.setZoom(17);
-  markers[i]?.setAnimation(google.maps.Animation.BOUNCE);
-  setTimeout(() => markers[i]?.setAnimation(null), 1400);
-  document.getElementById('mc-name').textContent = p.name;
-  document.getElementById('mc-addr').textContent = p.vicinity || 'Address not available';
-  document.getElementById('mc-nav').href = `https://www.google.com/maps/dir/?api=1&destination=${loc.lat},${loc.lng}`;
-  document.getElementById('map-card').classList.add('show');
-}
-
 function closeCard() {
   document.getElementById('map-card').classList.remove('show');
   document.querySelectorAll('.p-card').forEach(c => c.classList.remove('active'));
+  // Restore full area map for OSM
+  if (!USE_GOOGLE && userLocation) renderOSMMap(userLocation);
 }
 
-/* ─── MARKERS ────────────────────────────────────────────────────────────── */
-function placeMarkers(places) {
-  markers.forEach(m => m.setMap(null)); markers = [];
-  places.forEach((p, i) => {
-    const m = new google.maps.Marker({
-      position: p.geometry.location, map, title: p.name,
-      icon: {
-        url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(
-          `<svg width="28" height="36" viewBox="0 0 28 36" xmlns="http://www.w3.org/2000/svg">
-            <path d="M14 0C6.268 0 0 6.268 0 14c0 7.732 14 22 14 22S28 21.732 28 14C28 6.268 21.732 0 14 0z" fill="#00c896"/>
-            <circle cx="14" cy="14" r="7" fill="white"/>
-            <text x="14" y="18.5" text-anchor="middle" font-size="10" font-family="sans-serif">💊</text>
-          </svg>`),
-        scaledSize: new google.maps.Size(28, 36),
-        anchor: new google.maps.Point(14, 36)
-      }
-    });
-    m.addListener('click', () => selectPlace(i, p));
-    markers.push(m);
-  });
+/* ─── GOOGLE MARKERS ─────────────────────────────────────────────────────── */
+function markerSVG() {
+  return `<svg width="28" height="36" viewBox="0 0 28 36" xmlns="http://www.w3.org/2000/svg">
+    <path d="M14 0C6.268 0 0 6.268 0 14c0 7.732 14 22 14 22S28 21.732 28 14C28 6.268 21.732 0 14 0z" fill="#00c896"/>
+    <circle cx="14" cy="14" r="7" fill="white"/>
+    <text x="14" y="18.5" text-anchor="middle" font-size="10" font-family="sans-serif">💊</text>
+  </svg>`;
+}
+
+/* ─── MAP CONTROLS ───────────────────────────────────────────────────────── */
+function mapZoom(d) {
+  if (USE_GOOGLE && map) { map.setZoom(map.getZoom() + d); return; }
+  // For OSM: adjust radius and re-render
+  currentRadius = Math.max(300, currentRadius * (d > 0 ? 0.7 : 1.4));
+  if (userLocation) renderOSMMap(userLocation);
+}
+function recenter() {
+  if (USE_GOOGLE && map && userLocation) { map.panTo(userLocation); map.setZoom(15); return; }
+  if (!USE_GOOGLE && userLocation) renderOSMMap(userLocation);
 }
 
 /* ─── FILTER CONTROLS ────────────────────────────────────────────────────── */
@@ -831,12 +1014,16 @@ function changeRadius(r, btn) {
   currentRadius = r;
   document.querySelectorAll('.chip').forEach(c => c.classList.remove('on'));
   btn.classList.add('on');
-  if (!USE_DEMO && userLocation && map) { markers.forEach(m => m.setMap(null)); markers = []; searchNearby(userLocation); }
+  if (!userLocation) return;
+  if (USE_GOOGLE && map) {
+    markers.forEach(m => m.setMap(null)); markers = [];
+    searchGoogleNearby(userLocation);
+  } else {
+    document.getElementById('ov-loading').classList.remove('off');
+    renderOSMMap(userLocation);
+    fetchOverpassPharmacies(userLocation);
+  }
 }
-
-/* ─── MAP CONTROLS ───────────────────────────────────────────────────────── */
-function mapZoom(d) { if (map) map.setZoom(map.getZoom() + d); }
-function recenter()  { if (map && userLocation) { map.panTo(userLocation); map.setZoom(15); } }
 
 /* ─── HELPERS ────────────────────────────────────────────────────────────── */
 function renderStars(r) {
@@ -853,6 +1040,7 @@ function distStr(a, b) {
   return d<1000 ? Math.round(d)+'m' : (d/1000).toFixed(1)+'km';
 }
 function esc(s) {
+  if (!s) return '';
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
@@ -865,15 +1053,19 @@ document.addEventListener('keydown', e => {
 });
 
 /* ─── BOOT ───────────────────────────────────────────────────────────────── */
-window.initGoogleMap = initLocation;
-if (USE_DEMO) {
-  initLocation();
-} else {
+if (USE_GOOGLE) {
+  window.initGoogleMapCallback = () => initLocation();
   const s = document.createElement('script');
-  s.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&libraries=places&callback=initGoogleMap`;
+  s.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&libraries=places&callback=initGoogleMapCallback`;
   s.async = true; s.defer = true;
-  s.onerror = () => showError('Failed to load Google Maps. Check your API key.');
+  s.onerror = () => {
+    console.warn('Google Maps failed, falling back to OpenStreetMap');
+    initLocation(); // will use OSM path since USE_GOOGLE check happens inside
+  };
   document.head.appendChild(s);
+} else {
+  // Use OpenStreetMap + Overpass — no API key needed
+  initLocation();
 }
 </script>
 </body>
