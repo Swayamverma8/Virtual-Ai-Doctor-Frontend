@@ -251,10 +251,11 @@
     btn.textContent = 'Creating account...'; btn.classList.add('loading');
     try {
       const res = await fetch(`${API}/auth/register`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name,email,password}) });
-      const msg = await res.text();
-      if (msg.includes('successfully')) { showMsg('reg-success', 'Account created! Please sign in.'); setTimeout(() => switchTab('login'), 1500); }
+if (res.status === 503 || res.status === 502) { showMsg('reg-error', 'Server is waking up, wait 30 seconds and try again.'); btn.textContent = 'Create Account →'; btn.classList.remove('loading'); return; }
+const msg = await res.text();
+if (msg.includes('successfully')) { showMsg('reg-success', 'Account created! Please sign in.'); setTimeout(() => switchTab('login'), 1500); }
       else { showMsg('reg-error', msg || 'Registration failed.'); }
-    } catch(e) { showMsg('reg-error', 'Connection error. Is the server running?'); }
+    } catch(e) { showMsg('reg-error', 'Server may be waking up (can take 30s on free tier). Please try again.'); }
     btn.textContent = 'Create Account →'; btn.classList.remove('loading');
   }
 
